@@ -41,12 +41,16 @@ export async function fetchKoboPatients(
     throw new Error('Faltan credenciales de KoBoToolbox.');
   }
 
-  const base = settings.baseUrl.replace(/\/+$/, '');
-  const url = `${base}/api/v2/assets/${settings.assetUid}/data.json`;
+  const base = settings.baseUrl.trim().replace(/\/+$/, '');
+  const targetUrl = `${base}/api/v2/assets/${settings.assetUid.trim()}/data.json`;
 
-  const res = await fetch(url, {
+  // Se añade el proxy CORS para saltar la restricción del navegador
+  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+  const res = await fetch(proxyUrl, {
+    method: 'GET',
     headers: {
-      Authorization: `Token ${settings.apiToken}`,
+      Authorization: `Token ${settings.apiToken.trim()}`,
       Accept: 'application/json',
     },
   });
