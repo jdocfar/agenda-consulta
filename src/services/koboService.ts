@@ -44,8 +44,9 @@ export async function fetchKoboPatients(
   const base = settings.baseUrl.trim().replace(/\/+$/, '');
   const targetUrl = `${base}/api/v2/assets/${settings.assetUid.trim()}/data.json`;
 
-  // Se añade el proxy CORS para saltar la restricción del navegador
-  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+  // Se añade el proxy CORS para saltar la restricción del navegador 
+  const workerBase = 'https://microcors.jdocfar.workers.dev/';
+  const proxyUrl = `${workerBase}/?url=${encodeURIComponent(targetUrl)}`;
 
   const res = await fetch(proxyUrl, {
     method: 'GET',
