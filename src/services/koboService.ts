@@ -1,4 +1,5 @@
 import type { KoboSettings, PatientKoBo } from '@/types';
+import { loadCatalogs, translateCode } from './catalogService';
 
 interface KoboRawRecord {
   _id: string;
@@ -16,7 +17,11 @@ interface KoboRawRecord {
   fathername?: string;
 }
 
-function normalize(r: KoboRawRecord): PatientKoBo {
+function normalize(
+  r: KoboRawRecord,
+  deptosMap: Record<string, string>,
+  epsMap: Record<string, string>
+): PatientKoBo {
   return {
     _id: String(r._id ?? ''),
     name: r.name ?? '',
@@ -26,8 +31,8 @@ function normalize(r: KoboRawRecord): PatientKoBo {
     email: r.email ?? '',
     borndate: r.borndate ?? '',
     age: r.age ?? '',
-    eps: r.eps ?? '',
-    department: r.department ?? '',
+    eps: translateCode(r.eps, epsMap),
+    department: translateCode(r.department, deptosMap),
     city: r.city ?? '',
     mothername: r.mothername ?? '',
     fathername: r.fathername ?? '',
@@ -41,10 +46,12 @@ export async function fetchKoboPatients(
     throw new Error('Faltan credenciales de KoBoToolbox.');
   }
 
+  // 1. Cargar los mapas CSV
+  const { deptos, eps } = await loadCatalogs();
+
+  // 2. Consulta a KoBo vía Worker
   const base = settings.baseUrl.trim().replace(/\/+$/, '');
   const targetUrl = `${base}/api/v2/assets/${settings.assetUid.trim()}/data.json`;
-
-  // Se añade el proxy CORS para saltar la restricción del navegador 
   const workerBase = 'https://microcors.jdocfar.workers.dev/';
   const proxyUrl = `${workerBase}/?url=${encodeURIComponent(targetUrl)}`;
 
@@ -62,5 +69,7 @@ export async function fetchKoboPatients(
 
   const data = await res.json();
   const results: KoboRawRecord[] = data?.results ?? [];
-  return results.map(normalize);
+
+  // 3. Normalizar usando las etiquetas cargadas desde los CSV
+  return results.map((r) => normalize(r, deptos, eps));
 }
