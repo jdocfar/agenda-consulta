@@ -3,6 +3,15 @@ import { X, Server, FileSpreadsheet } from 'lucide-react';
 import type { KoboSettings, SheetsSettings } from '@/types';
 import { storage } from '@/services/storage';
 
+import { useRef } from 'react';
+import {
+  exportFullBackupJSON,
+  exportAppointmentsToExcel,
+  importBackupFromFile,
+  AppBackupData,
+} from '@/utils/exportAgenda';
+import { storage } from '@/services/storage';
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -129,5 +138,108 @@ function Field({
         className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
       />
     </label>
+  );
+}
+
+// Aquí agregue todo
+
+export default function SettingsSheet({
+  // Tus props actuales...
+  onDataRestored, // opcional: callback para refrescar el estado de App.tsx
+}: {
+  onDataRestored?: () => void;
+  [key: string]: any;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleExportExcel = () => {
+    exportAppointmentsToExcel(storage.getAppointments(), storage.getPatients());
+  };
+
+  const handleExportBackup = () => {
+    exportFullBackupJSON({
+      agenda: storage.getAgenda(),
+      patients: storage.getPatients(),
+      appointments: storage.getAppointments(),
+      sheetsSettings: storage.getSheetsSettings(),
+      koboSettings: storage.getKoboSettings(),
+    });
+  };
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm('¿Restaurar esta copia de seguridad? Se sobreescribirán los datos locales actuales.')) {
+      e.target.value = '';
+      return;
+    }
+
+    importBackupFromFile(
+      file,
+      (restored) => {
+        if (restored.agenda) storage.setAgenda(restored.agenda);
+        if (restored.patients) storage.setPatients(restored.patients);
+        if (restored.appointments) storage.setAppointments(restored.appointments);
+        if (restored.sheetsSettings) storage.setSheetsSettings(restored.sheetsSettings);
+        if (restored.koboSettings) storage.setKoboSettings(restored.koboSettings);
+
+        alert('¡Copia de seguridad restaurada con éxito!');
+        // Recargar la ventana para refrescar todos los estados de React limpiamente
+        window.location.reload();
+      },
+      (errMsg) => {
+        alert(`Error al importar: ${errMsg}`);
+      }
+    );
+    e.target.value = '';
+  };
+
+  return (
+    <div>
+      {/* ... Tus campos existentes de KoBo y Sheets ... */}
+
+      {/* SECCIÓN GESTIÓN DE DATOS */}
+      <div className="pt-5 border-t border-slate-700/60 mt-6 space-y-3">
+        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          Datos y Copias de Seguridad
+        </h4>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="px-3 py-2 text-xs font-medium bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <span>📊</span> Exportar a Excel (CSV)
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportBackup}
+            className="px-3 py-2 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <span>💾</span> Descargar Backup (JSON)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3 py-2 text-xs font-medium bg-amber-700 hover:bg-amber-600 text-white rounded-lg flex items-center justify-center gap-2 transition sm:col-span-2"
+          >
+            <span>📥</span> Restaurar Copia (Importar JSON)
+          </button>
+
+          {/* Input oculto para cargar archivo */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleFileSelected}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

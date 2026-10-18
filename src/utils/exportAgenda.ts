@@ -71,3 +71,150 @@ export async function shareAgenda(text: string): Promise<boolean> {
   }
   return false;
 }
+
+
+import type { AgendaDay, Appointment, KoboSettings, PatientKoBo, SheetsSettings } from '@/types';
+
+// Estructura formal del archivo de copia de seguridad
+export interface AppBackupData {
+  version: number;
+  exportedAt: string;
+  agenda?: AgendaDay[];
+  patients?: PatientKoBo[];
+  appointments?: Record<string, Appointment>;
+  sheetsSettings?: SheetsSettings;
+  koboSettings?: KoboSettings;
+}
+
+function downloadBlob(content: BlobPart, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 1. Exportar Backup JSON completo
+ */
+export function exportFullBackupJSON(backupData: {
+  agenda: AgendaDay[];
+  patients: PatientKoBo[];
+  appointments: Record<string, Appointment>;
+  sheetsSettings?: SheetsSettings;
+  koboSettings?: KoboSettings;
+}) {
+  const payload: AppBackupData = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    ...backupData,
+  };
+  const dateStr = new Date().toISOString().split('T')[0];
+  const filename = `agenda_backup_${dateStr}.json`;
+  downloadBlob(JSON.stringify(payload, null, 2), filename, 'application/json;charset=utf-8;');
+}
+
+/**
+ * 2. Exportar Citas Agendadas a CSV (Excel con BOM UTF-8 y separador ';')
+ */
+export function exportAppointmentsToExcel(
+  appointments: Record<string, Appointment>,
+  patientsList: PatientKoBo[] = []
+) {
+  const apptList = Object.values(appointments);
+  if (apptList.length === 0) {
+    alert('No hay citas asignadas para exportar.');
+    return;
+  }
+
+  const patientMap = new Map<string, PatientKoBo>();
+  patientsList.forEach((p) => {
+    if (p._id) patientMap.set(String(p._id), p);
+    if (p.id) patientMap.set(String(p.id), p);
+  });
+
+  const headers = [
+    'Fecha',
+    'Hora',
+    'Paciente',
+    'Documento',
+    'Edad',
+    'Teléfono',
+    'EPS',
+    'Departamento',
+    'Ciudad',
+    'Modalidad',
+    'Lugar',
+  ];
+
+  const escapeCsv = (val: unknown) => {
+    const s = String(val ?? '').replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const rows: string[] = [headers.map(escapeCsv).join(';')];
+
+  apptList.sort((a: any, b: any) => {
+    const dateA = a.fecha || a.date || '';
+    const dateB = b.fecha || b.date || '';
+    const timeA = a.hora || a.start || a.time || '';
+    const timeB = b.hora || b.start || b.time || '';
+    return dateA.localeCompare(dateB) || timeA.localeCompare(timeB);
+  });
+
+  for (const appt of apptList as any[]) {
+    const pId = appt.patientId || appt.patient?._id || appt.patient?.id;
+    const p: Partial<PatientKoBo> = appt.patient || (pId ? patientMap.get(String(pId)) : {}) || {};
+
+    const line = [
+      appt.fecha || appt.date || '',
+      appt.hora || appt.start || appt.time || '',
+      p.name || appt.patientName || '',
+      p.id || appt.patientId || '',
+      p.age ?? '',
+      p.telephone1 || appt.telephone || '',
+      p.eps || '',
+      p.department || '',
+      p.city || '',
+      appt.modalidad || appt.modality || '',
+      appt.lugar || appt.location || '',
+    ];
+    rows.push(line.map(escapeCsv).join(';'));
+  }
+
+  const csvContent = '\uFEFF' + rows.join('\r\n');
+  const dateStr = new Date().toISOString().split('T')[0];
+  downloadBlob(csvContent, `citas_agendadas_${dateStr}.csv`, 'text/csv;charset=utf-8;');
+}
+
+/**
+ * 3. Importar y restaurar Backup JSON
+ */
+export function importBackupFromFile(
+  file: File,
+  onSuccess: (data: AppBackupData) => void,
+  onError: (errMessage: string) => void
+) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const text = e.target?.result as string;
+      const parsed = JSON.parse(text) as AppBackupData;
+
+      // Validación mínima de estructura
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('El archivo no tiene un formato JSON válido.');
+      }
+
+      onSuccess(parsed);
+    } catch (err: any) {
+      onError(err.message || 'Error al procesar el archivo de copia de seguridad.');
+    }
+  };
+  reader.onerror = () => onError('No se pudo leer el archivo seleccionado.');
+  reader.readAsText(file);
+}
