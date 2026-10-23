@@ -50,39 +50,54 @@ export default function App() {
     setToast({ message, type });
 
   // ========================================================
-  // MOTOR MATEMÁTICO DE FECHAS (IGNORA TEXTO Y ORDENA CRONOLÓGICAMENTE)
+  // PARSEADOR MAESTRO DE FECHAS (BLINDADO CONTRA ERRORES)
   // ========================================================
-  const getTimestamp = (dateStr: string): number => {
-    if (!dateStr) return 0;
-    // Extrae únicamente los números de la cadena (Ej: "Mar 26/1" -> [26, 1])
-    const nums = dateStr.match(/\d+/g); 
+  const parseDate = (dateStr: string): Date => {
+    if (!dateStr) return new Date(0);
     
-    if (nums && nums.length >= 2) {
-      if (nums[0].length === 4) {
-        // Formato YYYY-MM-DD
-        return new Date(parseInt(nums[0]), parseInt(nums[1]) - 1, parseInt(nums[2] || '1')).getTime();
-      } else {
-        // Formato DD/MM (Asumido para LATAM)
-        const day = parseInt(nums[0], 10);
-        const month = parseInt(nums[1], 10);
-        let year = new Date().getFullYear();
-        if (nums.length >= 3) {
-          year = parseInt(nums[2], 10);
-          if (year < 100) year += 2000;
-        }
-        return new Date(year, month - 1, day).getTime();
+    // 1. Quitar letras (como "Mar") y espacios. Ej: "Mar 19/1" -> "19/1"
+    const cleanStr = dateStr.replace(/[a-zA-Z]/g, '').trim();
+    
+    // 2. Extraer puramente los bloques de números
+    const nums = cleanStr.match(/\d+/g);
+    if (!nums || nums.length < 2) return new Date(0);
+    
+    let day = 1, month = 1, year = new Date().getFullYear();
+    
+    // Si el primer número tiene 4 dígitos, es formato YYYY-MM-DD
+    if (nums[0].length === 4) {
+      year = parseInt(nums[0], 10);
+      month = parseInt(nums[1], 10);
+      day = parseInt(nums[2] || '1', 10);
+    } 
+    // Sino, asumimos formato LATAM (DD-MM o DD-MM-YYYY)
+    else {
+      day = parseInt(nums[0], 10);
+      month = parseInt(nums[1], 10);
+      if (nums.length >= 3) {
+        year = parseInt(nums[2], 10);
+        if (year < 100) year += 2000;
       }
     }
-    return new Date(dateStr).getTime() || 0;
+    
+    // Convertir a fecha real (Mes en JS va de 0 a 11)
+    return new Date(year, month - 1, day);
   };
 
   const getMonthKey = (dateStr: string) => {
-    const t = getTimestamp(dateStr);
-    if (t === 0) return dateStr.substring(0, 7);
-    const d = new Date(t);
+    const d = parseDate(dateStr);
+    if (d.getTime() === new Date(0).getTime()) return 'all';
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   };
 
+  const formatMonth = (yyyyMm: string) => {
+    if (yyyyMm === 'all') return 'Todos los meses';
+    const [y, m] = yyyyMm.split('-');
+    const date = new Date(parseInt(y, 10), parseInt(m, 10) - 1, 15);
+    const str = date.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  };
+  
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
 
@@ -91,12 +106,12 @@ export default function App() {
       .map((a) => (a.fecha || '').trim())
       .filter((v, i, arr) => arr.indexOf(v) === i && v !== '');
     
-    // Obliga al navegador a ordenarlas restando el valor real de tiempo
-    return unique.sort((a, b) => getTimestamp(a) - getTimestamp(b));
+    // Ordenar restando el tiempo matemático exacto de cada fecha
+    return unique.sort((a, b) => parseDate(a).getTime() - parseDate(b).getTime());
   }, [agenda]);
 
   const availableMonths = useMemo(() => {
-    const months = allDates.map(getMonthKey);
+    const months = allDates.map(getMonthKey).filter(k => k !== 'all');
     return Array.from(new Set(months)).sort((a, b) => a.localeCompare(b));
   }, [allDates]);
 
@@ -140,13 +155,6 @@ export default function App() {
     }
     return blocks.sort((a, b) => (a.hora_inicio || '').localeCompare(b.hora_inicio || ''));
   }, [agenda, selectedDate, filterType]);
-
-  const formatMonth = (yyyyMm: string) => {
-    const [y, m] = yyyyMm.split('-');
-    const date = new Date(parseInt(y), parseInt(m) - 1, 15);
-    const str = date.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
-    return str.charAt(0).toUpperCase() + str.slice(1);
-  };
   // ========================================================
 
   const slots = useMemo<TimeSlot[]>(() => {
@@ -169,10 +177,10 @@ export default function App() {
     try {
       const days = await fetchSheetsAgenda(storage.getSheetsSettings());
       
-      // NUEVO: Ordenar los datos cronológicamente antes de guardarlos en disco
+      // Ordenar todo cronológicamente antes de guardarlo en la memoria del celular
       days.sort((a, b) => {
-        const tA = getTimestamp(a.fecha || '');
-        const tB = getTimestamp(b.fecha || '');
+        const tA = parseDate(a.fecha || '').getTime();
+        const tB = parseDate(b.fecha || '').getTime();
         if (tA !== tB) return tA - tB;
         return (a.hora_inicio || '').localeCompare(b.hora_inicio || '');
       });
