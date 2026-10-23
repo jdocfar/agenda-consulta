@@ -32,20 +32,14 @@ export default function App() {
     storage.getAppointments(),
   );
 
-  const [syncSheets, setSyncSheets] = useState<SyncState>(
-    storage.getSyncState('sheets'),
-  );
-  const [syncKobo, setSyncKobo] = useState<SyncState>(
-    storage.getSyncState('kobo'),
-  );
+  const [syncSheets, setSyncSheets] = useState<SyncState>(storage.getSyncState('sheets'));
+  const [syncKobo, setSyncKobo] = useState<SyncState>(storage.getSyncState('kobo'));
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [activeSlot, setActiveSlot] = useState<TimeSlot | null>(null);
-  const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(
-    null,
-  );
+  const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
 
   const [toast, setToast] = useState<{
     message: string | null;
@@ -55,32 +49,71 @@ export default function App() {
   const showToast = (message: string, type: 'success' | 'error' = 'success') =>
     setToast({ message, type });
 
-  const dates = useMemo(
-    () => agenda.map((a) => a.fecha).filter((v, i, arr) => arr.indexOf(v) === i),
-    [agenda],
-  );
+  // === LÓGICA DE FILTROS Y ORDENAMIENTO ===
+  const [filterMonth, setFilterMonth] = useState<string>('all');
+  const [filterType, setFilterType] = useState<string>('all');
 
-  const [selectedDate, setSelectedDate] = useState<string>(dates[0] ?? '');
+  const allDates = useMemo(() => {
+    const unique = agenda.map((a) => a.fecha).filter((v, i, arr) => arr.indexOf(v) === i);
+    return unique.sort((a, b) => a.localeCompare(b));
+  }, [agenda]);
+
+  const availableMonths = useMemo(() => {
+    const months = allDates.map((d) => d.substring(0, 7)); 
+    return Array.from(new Set(months)).sort((a, b) => a.localeCompare(b));
+  }, [allDates]);
+
+  const availableTypes = useMemo(() => {
+    const types = agenda.map((a) => (a as any).modalidad || (a as any).tipo_atencion || 'Consulta');
+    return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
+  }, [agenda]);
+
+  const filteredDates = useMemo(() => {
+    return allDates.filter((date) => {
+      const passMonth = filterMonth === 'all' || date.startsWith(filterMonth);
+      const passType =
+        filterType === 'all' ||
+        agenda.some((a) => {
+          const type = (a as any).modalidad || (a as any).tipo_atencion || 'Consulta';
+          return a.fecha === date && type === filterType;
+        });
+      return passMonth && passType;
+    });
+  }, [allDates, agenda, filterMonth, filterType]);
+
+  const [selectedDate, setSelectedDate] = useState<string>(filteredDates[0] ?? '');
 
   useEffect(() => {
-    if (!dates.includes(selectedDate) && dates.length > 0) {
-      setSelectedDate(dates[0]);
+    if (!filteredDates.includes(selectedDate) && filteredDates.length > 0) {
+      setSelectedDate(filteredDates[0]);
     }
-  }, [dates, selectedDate]);
+  }, [filteredDates, selectedDate]);
 
-  const dayBlocks = useMemo<AgendaDay[]>(
-    () => agenda.filter((a) => a.fecha === selectedDate),
-    [agenda, selectedDate],
-  );
+  const dayBlocks = useMemo<AgendaDay[]>(() => {
+    let blocks = agenda.filter((a) => a.fecha === selectedDate);
+    if (filterType !== 'all') {
+      blocks = blocks.filter((a) => {
+        const type = (a as any).modalidad || (a as any).tipo_atencion || 'Consulta';
+        return type === filterType;
+      });
+    }
+    return blocks;
+  }, [agenda, selectedDate, filterType]);
+
+  const formatMonth = (yyyyMm: string) => {
+    const [y, m] = yyyyMm.split('-');
+    const date = new Date(parseInt(y), parseInt(m) - 1, 1);
+    const str = date.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  };
+  // ========================================
 
   const slots = useMemo<TimeSlot[]>(() => {
     if (dayBlocks.length === 0) return [];
     const base = generateSlotsForDate(dayBlocks);
     return base.map((s) => {
       const key = slotKey(s.fecha, s.start);
-      return appointments[key]
-        ? { ...s, status: 'occupied' as const }
-        : s;
+      return appointments[key] ? { ...s, status: 'occupied' as const } : s;
     });
   }, [dayBlocks, appointments]);
 
@@ -101,10 +134,7 @@ export default function App() {
       );
       setAgenda(days);
       storage.setAgenda(days);
-      const ok: SyncState = {
-        status: 'success',
-        lastSync: new Date().toISOString(),
-      };
+      const ok: SyncState = { status: 'success', lastSync: new Date().toISOString() };
       setSyncSheets(ok);
       storage.setSyncState('sheets', ok);
       showToast(`Horarios sincronizados (${days.length} bloques)`);
@@ -126,10 +156,7 @@ export default function App() {
       const list = await fetchKoboPatients(storage.getKoboSettings());
       setPatients(list);
       storage.setPatients(list);
-      const ok: SyncState = {
-        status: 'success',
-        lastSync: new Date().toISOString(),
-      };
+      const ok: SyncState = { status: 'success', lastSync: new Date().toISOString() };
       setSyncKobo(ok);
       storage.setSyncState('kobo', ok);
       showToast(`Pacientes sincronizados (${list.length})`);
@@ -193,10 +220,7 @@ export default function App() {
     if (dayBlocks.length === 0) return;
     const text = buildAgendaText(selectedDate, slots, appointments);
     const ok = await copyAgendaToClipboard(text);
-    showToast(
-      ok ? 'Copiado al portapapeles' : 'No se pudo copiar',
-      ok ? 'success' : 'error',
-    );
+    showToast(ok ? 'Copiado al portapapeles' : 'No se pudo copiar', ok ? 'success' : 'error');
   };
 
   const handleShare = async () => {
@@ -205,15 +229,12 @@ export default function App() {
     const ok = await shareAgenda(text);
     if (!ok) {
       const copied = await copyAgendaToClipboard(text);
-      showToast(
-        copied ? 'Copiado (share no disponible)' : 'No se pudo compartir',
-        copied ? 'success' : 'error',
-      );
+      showToast(copied ? 'Copiado (share no disponible)' : 'No se pudo compartir', copied ? 'success' : 'error');
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
+    <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
       <TopBar
         syncSheets={syncSheets}
         syncKobo={syncKobo}
@@ -223,11 +244,53 @@ export default function App() {
       />
 
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-5">
-        <DateSelector
-          dates={dates}
-          selected={selectedDate}
-          onSelect={setSelectedDate}
-        />
+        {allDates.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-3 rounded-2xl bg-white p-4 shadow-sm border border-slate-200">
+            <div className="flex-1">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                Filtrar por Mes
+              </label>
+              <select
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
+              >
+                <option value="all">Todos los meses</option>
+                {availableMonths.map((m) => (
+                  <option key={m} value={m}>{formatMonth(m)}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex-1">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                Tipo de Cita
+              </label>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium capitalize outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
+              >
+                <option value="all">Todas las modalidades</option>
+                {availableTypes.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {filteredDates.length > 0 ? (
+          <DateSelector
+            dates={filteredDates}
+            selected={selectedDate}
+            onSelect={setSelectedDate}
+          />
+        ) : allDates.length > 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
+            No hay horarios que coincidan con los filtros actuales.
+          </div>
+        ) : null}
 
         {dayBlocks.length > 0 ? (
           <>
@@ -244,23 +307,20 @@ export default function App() {
               onSlotClick={handleSlotClick}
             />
           </>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-            <p className="text-sm font-medium text-slate-600">
-              Bienvenido a Clínica Agenda
-            </p>
+        ) : allDates.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
+            <p className="text-sm font-medium text-slate-600">Bienvenido a Clínica Agenda</p>
             <p className="mt-1 text-sm text-slate-400">
-              Configura tus credenciales en Ajustes y sincroniza horarios y
-              pacientes para comenzar.
+              Configura tus credenciales en Ajustes y sincroniza horarios y pacientes para comenzar.
             </p>
             <button
               onClick={() => setSettingsOpen(true)}
-              className="mt-4 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-700"
+              className="mt-4 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-teal-700"
             >
               Abrir Ajustes
             </button>
           </div>
-        )}
+        ) : null}
       </main>
 
       <SettingsSheet
@@ -272,9 +332,7 @@ export default function App() {
       <PatientSearchSheet
         open={searchOpen}
         patients={patients}
-        slotLabel={
-          activeSlot ? `${activeSlot.start} - ${activeSlot.end}` : ''
-        }
+        slotLabel={activeSlot ? `${activeSlot.start} - ${activeSlot.end}` : ''}
         onClose={() => {
           setSearchOpen(false);
           setActiveSlot(null);
