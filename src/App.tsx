@@ -271,14 +271,14 @@ export default function App() {
 
   const handleCopy = async () => {
     if (dayBlocks.length === 0) return;
-    const text = buildAgendaText(selectedDate, slots, appointments);
+    const text = buildAgendaText(selectedDate, slots, appointments, patients);
     const ok = await copyAgendaToClipboard(text);
     showToast(ok ? 'Copiado al portapapeles' : 'No se pudo copiar', ok ? 'success' : 'error');
   };
 
   const handleShare = async () => {
     if (dayBlocks.length === 0) return;
-    const text = buildAgendaText(selectedDate, slots, appointments);
+    const text = buildAgendaText(selectedDate, slots, appointments, patients);
     const ok = await shareAgenda(text);
     if (!ok) {
       const copied = await copyAgendaToClipboard(text);

@@ -1,14 +1,37 @@
-import type { Appointment, TimeSlot } from '@/types';
+import type { AgendaDay, Appointment, KoboSettings, PatientKoBo, SheetsSettings, TimeSlot } from '@/types';
 import { TIPO_ATENCION_LABELS } from '@/utils/tipoAtencion';
+
+// Estructura formal del archivo de copia de seguridad
+export interface AppBackupData {
+  version: number;
+  exportedAt: string;
+  agenda?: AgendaDay[];
+  patients?: PatientKoBo[];
+  appointments?: Record<string, Appointment>;
+  sheetsSettings?: SheetsSettings;
+  koboSettings?: KoboSettings;
+}
+
+function downloadBlob(content: BlobPart, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 function formatDateDDMMYYYY(iso: string): string {
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
 
-function patientLine(slot: TimeSlot, appt: Appointment): string {
+// Ahora recibe el paciente fusionado y no la cita vieja
+function patientLine(slot: TimeSlot, p: PatientKoBo): string {
   const label = TIPO_ATENCION_LABELS[slot.tipo_atencion];
-  const p = appt.patient;
   const timeRange = `[${slot.start} - ${slot.end}]`;
   const typeTag = `[${label}]`;
   const docPrefix = p.tipo_documento || 'ID';
@@ -20,6 +43,8 @@ function patientLine(slot: TimeSlot, appt: Appointment): string {
       return `• ${timeRange} ${typeTag} - ${p.name} (${docPrefix}: ${p.id}, Tel: ${p.telephone1})`;
     case 'junta':
       return `• ${timeRange} ${typeTag} - ${p.name} (${docPrefix}: ${p.id}, Tel: ${p.telephone1}, EPS: ${p.eps})`;
+    default:
+      return `• ${timeRange} ${typeTag} - ${p.name} (${docPrefix}: ${p.id}, Tel: ${p.telephone1})`;
   }
 }
 
@@ -27,6 +52,7 @@ export function buildAgendaText(
   fecha: string,
   slots: TimeSlot[],
   appointments: Record<string, Appointment>,
+  patientsList: PatientKoBo[] = [] // Se añade la lista fresca
 ): string {
   const fechaFmt = formatDateDDMMYYYY(fecha);
   const lines: string[] = [];
@@ -35,13 +61,27 @@ export function buildAgendaText(
   let citados = 0;
   let libres = 0;
 
+  // Mapa rápido de pacientes frescos
+  const patientMap = new Map<string, PatientKoBo>();
+  patientsList.forEach((p) => {
+    if (p._id) patientMap.set(String(p._id), p);
+    if (p.id) patientMap.set(String(p.id), p);
+  });
+
   for (const s of slots) {
     const key = `${s.fecha}_${s.start}`;
     const appt = appointments[key];
     const label = TIPO_ATENCION_LABELS[s.tipo_atencion];
+    
     if (appt) {
       citados++;
-      lines.push(patientLine(s, appt));
+      const pId = appt.patientId || appt.patient?._id || appt.patient?.id;
+      const freshPatient = pId ? patientMap.get(String(pId)) : {};
+      
+      // Fusiona la cita vieja con el paciente fresco
+      const mergedPatient = { ...(appt.patient || {}), ...(freshPatient || {}) } as PatientKoBo;
+      
+      lines.push(patientLine(s, mergedPatient));
     } else {
       libres++;
       lines.push(`• [${s.start} - ${s.end}] [${label}] - DISPONIBLE`);
@@ -71,32 +111,6 @@ export async function shareAgenda(text: string): Promise<boolean> {
     }
   }
   return false;
-}
-
-
-import type { AgendaDay, KoboSettings, PatientKoBo, SheetsSettings } from '@/types';
-
-// Estructura formal del archivo de copia de seguridad
-export interface AppBackupData {
-  version: number;
-  exportedAt: string;
-  agenda?: AgendaDay[];
-  patients?: PatientKoBo[];
-  appointments?: Record<string, Appointment>;
-  sheetsSettings?: SheetsSettings;
-  koboSettings?: KoboSettings;
-}
-
-function downloadBlob(content: BlobPart, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 /**
@@ -170,13 +184,14 @@ export function exportAppointmentsToExcel(
 
   for (const appt of apptList as any[]) {
     const pId = appt.patientId || appt.patient?._id || appt.patient?.id;
-    const p: Partial<PatientKoBo> = appt.patient || (pId ? patientMap.get(String(pId)) : {}) || {};
+    const freshPatient = pId ? patientMap.get(String(pId)) : {};
+    const p: Partial<PatientKoBo> = { ...(appt.patient || {}), ...(freshPatient || {}) };
 
     const line = [
       appt.fecha || appt.date || '',
       appt.hora || appt.start || appt.time || '',
       p.name || appt.patientName || '',
-      p.tipo_documento || '',
+      p.tipo_documento || '', 
       p.id || appt.patientId || '',
       p.age ?? '',
       p.telephone1 || appt.telephone || '',
@@ -208,7 +223,6 @@ export function importBackupFromFile(
       const text = e.target?.result as string;
       const parsed = JSON.parse(text) as AppBackupData;
 
-      // Validación mínima de estructura
       if (!parsed || typeof parsed !== 'object') {
         throw new Error('El archivo no tiene un formato JSON válido.');
       }
