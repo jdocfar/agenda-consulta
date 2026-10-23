@@ -49,51 +49,49 @@ export default function App() {
   const showToast = (message: string, type: 'success' | 'error' = 'success') =>
     setToast({ message, type });
 
-// === LÓGICA DE FILTROS Y ORDENAMIENTO ===
+  // ========================================================
+  // MOTOR MATEMÁTICO DE FECHAS (IGNORA TEXTO Y ORDENA CRONOLÓGICAMENTE)
+  // ========================================================
+  const getTimestamp = (dateStr: string): number => {
+    if (!dateStr) return 0;
+    // Extrae únicamente los números de la cadena (Ej: "Mar 26/1" -> [26, 1])
+    const nums = dateStr.match(/\d+/g); 
+    
+    if (nums && nums.length >= 2) {
+      if (nums[0].length === 4) {
+        // Formato YYYY-MM-DD
+        return new Date(parseInt(nums[0]), parseInt(nums[1]) - 1, parseInt(nums[2] || '1')).getTime();
+      } else {
+        // Formato DD/MM (Asumido para LATAM)
+        const day = parseInt(nums[0], 10);
+        const month = parseInt(nums[1], 10);
+        let year = new Date().getFullYear();
+        if (nums.length >= 3) {
+          year = parseInt(nums[2], 10);
+          if (year < 100) year += 2000;
+        }
+        return new Date(year, month - 1, day).getTime();
+      }
+    }
+    return new Date(dateStr).getTime() || 0;
+  };
+
+  const getMonthKey = (dateStr: string) => {
+    const t = getTimestamp(dateStr);
+    if (t === 0) return dateStr.substring(0, 7);
+    const d = new Date(t);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
 
-  // 1. Extractor blindado usando Expresiones Regulares
-  // Lee textos como "Mar 26/1" o "05/01/2026" y rescata solo día=26 y mes=1
-  const parseDateSafe = (dateStr: string) => {
-    if (!dateStr) return { day: 1, month: 1, year: new Date().getFullYear(), valid: false };
-    
-    // Busca 1 o 2 dígitos, un slash o guión, y 1 o 2 dígitos
-    const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
-    if (match) {
-      const day = parseInt(match[1], 10);
-      const month = parseInt(match[2], 10);
-      let year = match[3] ? parseInt(match[3], 10) : new Date().getFullYear();
-      if (year < 100) year += 2000;
-      return { day, month, year, valid: true };
-    }
-    return { day: 1, month: 1, year: new Date().getFullYear(), valid: false };
-  };
-
-  // 2. Convierte el objeto a número (milisegundos) para un ordenamiento estricto
-  const getTimestamp = (dateStr: string): number => {
-    const d = parseDateSafe(dateStr);
-    if (d.valid) return new Date(d.year, d.month - 1, d.day).getTime();
-    
-    // Si falla por algún motivo raro, intenta usar Date nativo
-    const fallback = new Date(dateStr).getTime();
-    return isNaN(fallback) ? 0 : fallback;
-  };
-
-  // 3. Genera la llave "YYYY-MM" para los selectores de filtro
-  const getMonthKey = (dateStr: string) => {
-    const d = parseDateSafe(dateStr);
-    if (d.valid) return `${d.year}-${String(d.month).padStart(2, '0')}`;
-    return dateStr.substring(0, 7);
-  };
-
-  // 4. Fechas únicas ordenadas matemáticamente (de menor a mayor)
   const allDates = useMemo(() => {
     const unique = agenda
       .map((a) => (a.fecha || '').trim())
       .filter((v, i, arr) => arr.indexOf(v) === i && v !== '');
     
-    // Restar timestamps asegura el orden cronológico sin importar el texto
+    // Obliga al navegador a ordenarlas restando el valor real de tiempo
     return unique.sort((a, b) => getTimestamp(a) - getTimestamp(b));
   }, [agenda]);
 
@@ -140,7 +138,6 @@ export default function App() {
         return (val || 'Consulta').trim() === filterType;
       });
     }
-    // Ordenar los bloques del día cronológicamente por hora
     return blocks.sort((a, b) => (a.hora_inicio || '').localeCompare(b.hora_inicio || ''));
   }, [agenda, selectedDate, filterType]);
 
@@ -150,8 +147,8 @@ export default function App() {
     const str = date.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
     return str.charAt(0).toUpperCase() + str.slice(1);
   };
-  // ========================================
-  
+  // ========================================================
+
   const slots = useMemo<TimeSlot[]>(() => {
     if (dayBlocks.length === 0) return [];
     const base = generateSlotsForDate(dayBlocks);
@@ -171,11 +168,15 @@ export default function App() {
     storage.setSyncState('sheets', { status: 'loading' });
     try {
       const days = await fetchSheetsAgenda(storage.getSheetsSettings());
-      days.sort(
-        (a, b) =>
-          a.fecha.localeCompare(b.fecha) ||
-          a.hora_inicio.localeCompare(b.hora_inicio),
-      );
+      
+      // NUEVO: Ordenar los datos cronológicamente antes de guardarlos en disco
+      days.sort((a, b) => {
+        const tA = getTimestamp(a.fecha || '');
+        const tB = getTimestamp(b.fecha || '');
+        if (tA !== tB) return tA - tB;
+        return (a.hora_inicio || '').localeCompare(b.hora_inicio || '');
+      });
+
       setAgenda(days);
       storage.setAgenda(days);
       const ok: SyncState = { status: 'success', lastSync: new Date().toISOString() };
