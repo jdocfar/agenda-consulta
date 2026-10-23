@@ -53,22 +53,31 @@ export default function App() {
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
 
-  // 1. Convertidor inteligente de fechas (entiende DD/MM/YYYY de Google Sheets o YYYY-MM-DD)
+  // 1. Convertidor inteligente de fechas (Limpia letras como "Mar" dejando solo números)
   const parseDateStr = (dateStr: string): Date => {
     if (!dateStr) return new Date(0);
-    const s = dateStr.trim();
+    
+    // Elimina cualquier letra (ej. "Mar", "Lun") y espacios, dejando solo "19/1"
+    const s = dateStr.replace(/[^\d/-]/g, '').trim(); 
+    
     if (s.includes('/')) {
-      // Formato latino: 2/2/2026 o 02/02/2026
       const [d, m, y] = s.split('/');
       const year = y ? (y.length === 2 ? 2000 + parseInt(y) : parseInt(y)) : new Date().getFullYear();
       return new Date(year, parseInt(m) - 1, parseInt(d));
     }
+    
     if (s.includes('-')) {
-      // Formato internacional: 2026-02-02
-      const [y, m, d] = s.split('-');
-      return new Date(parseInt(y), parseInt(m) - 1, parseInt(d || '1'));
+      const parts = s.split('-');
+      if (parts[0].length === 4) { // YYYY-MM-DD
+        return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2] || '1'));
+      } else { // DD-MM-YYYY o DD-MM
+        const year = parts[2] ? (parts[2].length === 2 ? 2000 + parseInt(parts[2]) : parseInt(parts[2])) : new Date().getFullYear();
+        return new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]));
+      }
     }
-    return new Date(s);
+    
+    const fallback = new Date(dateStr);
+    return isNaN(fallback.getTime()) ? new Date(0) : fallback;
   };
 
   // 2. Extraer "YYYY-MM" para agrupar por mes correctamente (ej. Enero 2026 siempre es "2026-01")
