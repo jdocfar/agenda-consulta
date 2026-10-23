@@ -4,6 +4,7 @@ import { loadCatalogs, translateCode } from './catalogService';
 interface KoboRawRecord {
   _id: string;
   name?: string;
+  tipo_documento?: string;
   id?: string;
   telephone1?: string;
   telephone2?: string;
@@ -26,6 +27,7 @@ function normalize(
     _id: String(r._id ?? ''),
     name: r.name ?? '',
     id: r.id ?? '',
+    tipo_documento: r.tipo_documento ?? '',
     telephone1: r.telephone1 ?? '',
     telephone2: r.telephone2 ?? '',
     email: r.email ?? '',

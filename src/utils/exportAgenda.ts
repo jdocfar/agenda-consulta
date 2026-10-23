@@ -11,14 +11,15 @@ function patientLine(slot: TimeSlot, appt: Appointment): string {
   const p = appt.patient;
   const timeRange = `[${slot.start} - ${slot.end}]`;
   const typeTag = `[${label}]`;
+  const docPrefix = p.tipo_documento || 'ID';
 
   switch (slot.tipo_atencion) {
     case 'consulta habitual':
-      return `• ${timeRange} ${typeTag} - ${p.name} (ID: ${p.id}, Tel: ${p.telephone1}, EPS: ${p.eps})`;
+      return `• ${timeRange} ${typeTag} - ${p.name} (${docPrefix}: ${p.id}, Tel: ${p.telephone1}, EPS: ${p.eps})`;
     case 'consulta particular':
-      return `• ${timeRange} ${typeTag} - ${p.name} (ID: ${p.id}, Tel: ${p.telephone1})`;
+      return `• ${timeRange} ${typeTag} - ${p.name} (${docPrefix}: ${p.id}, Tel: ${p.telephone1})`;
     case 'junta':
-      return `• ${timeRange} ${typeTag} - ${p.name} (ID: ${p.id}, Tel: ${p.telephone1}, EPS: ${p.eps})`;
+      return `• ${timeRange} ${typeTag} - ${p.name} (${docPrefix}: ${p.id}, Tel: ${p.telephone1}, EPS: ${p.eps})`;
   }
 }
 
@@ -73,7 +74,7 @@ export async function shareAgenda(text: string): Promise<boolean> {
 }
 
 
-import type { AgendaDay, Appointment, KoboSettings, PatientKoBo, SheetsSettings } from '@/types';
+import type { AgendaDay, KoboSettings, PatientKoBo, SheetsSettings } from '@/types';
 
 // Estructura formal del archivo de copia de seguridad
 export interface AppBackupData {
@@ -141,6 +142,7 @@ export function exportAppointmentsToExcel(
     'Fecha',
     'Hora',
     'Paciente',
+    'Tipo Doc',
     'Documento',
     'Edad',
     'Teléfono',
@@ -174,6 +176,7 @@ export function exportAppointmentsToExcel(
       appt.fecha || appt.date || '',
       appt.hora || appt.start || appt.time || '',
       p.name || appt.patientName || '',
+      p.tipo_documento || '',
       p.id || appt.patientId || '',
       p.age ?? '',
       p.telephone1 || appt.telephone || '',

@@ -88,7 +88,7 @@ export default function PatientSearchSheet({
                         {p.name || 'Sin nombre'}
                       </p>
                       <p className="text-xs text-slate-500">
-                        ID: {p.id || '—'} · {p.age || '—'} años · EPS:{' '}
+                        {p.tipo_documento || 'ID'}: {p.id || '—'} · {p.age || '—'} años · EPS:{' '}
                         {p.eps || '—'} · {p.city || '—'}
                       </p>
                       {p.telephone1 && (

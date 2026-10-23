@@ -1,6 +1,7 @@
 export interface PatientKoBo {
   _id: string;
   name: string;
+  tipo_documento: string;
   id: string;
   telephone1: string;
   telephone2: string;
