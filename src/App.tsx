@@ -53,29 +53,62 @@ export default function App() {
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
 
+  // 1. Convertidor inteligente de fechas (entiende DD/MM/YYYY de Google Sheets o YYYY-MM-DD)
+  const parseDateStr = (dateStr: string): Date => {
+    if (!dateStr) return new Date(0);
+    const s = dateStr.trim();
+    if (s.includes('/')) {
+      // Formato latino: 2/2/2026 o 02/02/2026
+      const [d, m, y] = s.split('/');
+      const year = y ? (y.length === 2 ? 2000 + parseInt(y) : parseInt(y)) : new Date().getFullYear();
+      return new Date(year, parseInt(m) - 1, parseInt(d));
+    }
+    if (s.includes('-')) {
+      // Formato internacional: 2026-02-02
+      const [y, m, d] = s.split('-');
+      return new Date(parseInt(y), parseInt(m) - 1, parseInt(d || '1'));
+    }
+    return new Date(s);
+  };
+
+  // 2. Extraer "YYYY-MM" para agrupar por mes correctamente (ej. Enero 2026 siempre es "2026-01")
+  const getMonthKey = (dateStr: string) => {
+    const d = parseDateStr(dateStr);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  // 3. Fechas únicas ordenadas matemáticamente por tiempo real
   const allDates = useMemo(() => {
-    const unique = agenda.map((a) => a.fecha).filter((v, i, arr) => arr.indexOf(v) === i);
-    return unique.sort((a, b) => a.localeCompare(b));
+    const unique = agenda
+      .map((a) => (a.fecha || '').trim())
+      .filter((v, i, arr) => arr.indexOf(v) === i && v !== '');
+    
+    // getTime() ordena por milisegundos desde 1970, garantizando orden cronológico absoluto
+    return unique.sort((a, b) => parseDateStr(a).getTime() - parseDateStr(b).getTime());
   }, [agenda]);
 
   const availableMonths = useMemo(() => {
-    const months = allDates.map((d) => d.substring(0, 7)); 
-    return Array.from(new Set(months)).sort((a, b) => a.localeCompare(b));
+    const months = allDates.map(getMonthKey);
+    return Array.from(new Set(months)).sort((a, b) => a.localeCompare(b)); 
   }, [allDates]);
 
   const availableTypes = useMemo(() => {
-    const types = agenda.map((a) => (a as any).modalidad || (a as any).tipo_atencion || 'Consulta');
-    return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
+    const types = agenda.map((a) => {
+      const val = (a as any).modalidad || (a as any).tipo_atencion;
+      return (val || 'Consulta').trim();
+    });
+    return Array.from(new Set(types)).filter(Boolean).sort((a, b) => a.localeCompare(b));
   }, [agenda]);
 
   const filteredDates = useMemo(() => {
     return allDates.filter((date) => {
-      const passMonth = filterMonth === 'all' || date.startsWith(filterMonth);
+      const passMonth = filterMonth === 'all' || getMonthKey(date) === filterMonth;
       const passType =
         filterType === 'all' ||
         agenda.some((a) => {
-          const type = (a as any).modalidad || (a as any).tipo_atencion || 'Consulta';
-          return a.fecha === date && type === filterType;
+          const val = (a as any).modalidad || (a as any).tipo_atencion;
+          const type = (val || 'Consulta').trim();
+          return (a.fecha || '').trim() === date && type === filterType;
         });
       return passMonth && passType;
     });
@@ -90,19 +123,20 @@ export default function App() {
   }, [filteredDates, selectedDate]);
 
   const dayBlocks = useMemo<AgendaDay[]>(() => {
-    let blocks = agenda.filter((a) => a.fecha === selectedDate);
+    let blocks = agenda.filter((a) => (a.fecha || '').trim() === selectedDate);
     if (filterType !== 'all') {
       blocks = blocks.filter((a) => {
-        const type = (a as any).modalidad || (a as any).tipo_atencion || 'Consulta';
-        return type === filterType;
+        const val = (a as any).modalidad || (a as any).tipo_atencion;
+        return (val || 'Consulta').trim() === filterType;
       });
     }
-    return blocks;
+    // Ordenar los bloques del mismo día por hora cronológicamente
+    return blocks.sort((a, b) => (a.hora_inicio || '').localeCompare(b.hora_inicio || ''));
   }, [agenda, selectedDate, filterType]);
 
   const formatMonth = (yyyyMm: string) => {
     const [y, m] = yyyyMm.split('-');
-    const date = new Date(parseInt(y), parseInt(m) - 1, 1);
+    const date = new Date(parseInt(y), parseInt(m) - 1, 15);
     const str = date.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
     return str.charAt(0).toUpperCase() + str.slice(1);
   };
